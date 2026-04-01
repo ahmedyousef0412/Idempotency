@@ -7,31 +7,16 @@ public class IdempotencyFilter(IIdempotencyService idempotencyService) : IAsyncA
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        
+
         var key = context.HttpContext.Request.Headers["X-Idempotency-Key"].FirstOrDefault();
-
-        if (string.IsNullOrEmpty(key)) // Enforce the client to provide an idempotency key
-        {
-            context.Result = new BadRequestObjectResult(new
-            {
-                Error = "Missing Header",
-                Message = "The 'X-Idempotency-Key' header is required for this operation."
-            });
-
-            return;
-        }
        
-        if (!Guid.TryParse(key, out _))
-        {
-            context.Result = new BadRequestObjectResult("X-Idempotency-Key must be a valid GUID.");
-            return;
-        }
-
-        var requestDto = context.ActionArguments.Values.FirstOrDefault();
-        var requestHash = ComputeHash.ComputeHashForRequest(requestDto);
-
+        if (!IsValidKey(context,key)) return;
         
-        var checkResult = await _idempotencyService.CheckAndReserveAsync(key, requestHash);
+        var requestDto = context.ActionArguments.Values.FirstOrDefault();
+        var requestHash = ComputeHash.ComputeHashForRequest(requestDto!);
+
+
+        var checkResult = await _idempotencyService.CheckAndReserveAsync(key!, requestHash);
 
 
         // TODO: The block of switch statement will be refactored using state pattern in the future to make it more maintainable and extensible.
@@ -63,32 +48,51 @@ public class IdempotencyFilter(IIdempotencyService idempotencyService) : IAsyncA
 
             case IdempotencyStatus.New:
             default:
-               
+
                 var executedContext = await next();
 
-                /*
-                 Value Objetc {Order Entity}
-                 */
+
                 if (executedContext.Result is ObjectResult objectResult) // What this return?
                 {
-                    //{"Id":"8cbf54e3-8f15-440d-8c30-c675ece3df09","ProductName":"IPhone","Quantity":3,"CreatedAt":"2026-04-01T11:56:04.6500647Z"}
                     var responseBody = JsonSerializer.Serialize(objectResult.Value);
-                    
+
 
                     var statusCode = executedContext.Result switch
                     {
                         ObjectResult obj => obj.StatusCode ?? 200,
                         StatusCodeResult res => res.StatusCode,
-                        _ => 200
+                        _ => executedContext.HttpContext.Response.StatusCode
                     };
 
 
                     context.HttpContext.Response.Headers.Append("X-Idempotency-Key", key);
 
-                   
+
                     await _idempotencyService.SaveResponseAsync(key, responseBody, statusCode);
                 }
                 break;
         }
+    }
+
+    private static bool IsValidKey(ActionExecutingContext context, string? key)
+    {
+        if (string.IsNullOrEmpty(key)) // Enforce the client to provide an idempotency key
+        {
+            context.Result = new BadRequestObjectResult(new
+            {
+                Error = "Missing Header",
+                Message = "The 'X-Idempotency-Key' header is required for this operation."
+            });
+
+            return false;
+        }
+
+        if (!Guid.TryParse(key, out _))
+        {
+            context.Result = new BadRequestObjectResult("X-Idempotency-Key must be a valid GUID.");
+            return false;
+        }
+
+        return true;
     }
 }
