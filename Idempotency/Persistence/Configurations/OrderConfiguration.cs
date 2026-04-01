@@ -7,6 +7,11 @@ internal class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasKey(o => o.Id);
         builder.Property(o => o.ProductName)
             .IsRequired();
+
+        builder.Property(o => o.Quantity)
+                        .IsRequired();
+
+
         builder.Property(o => o.CreatedAt).IsRequired();
     }
 }

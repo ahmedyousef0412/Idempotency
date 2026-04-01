@@ -15,5 +15,7 @@ public class IdempotencyRecordConfiguration : IEntityTypeConfiguration<Idempoten
 
         builder.Property(x => x.ResponseBody)
                .HasColumnType("nvarchar(max)");
+
+           
     }
 }

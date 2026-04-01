@@ -17,7 +17,6 @@ public static class ComputeHash
 
     private static readonly JsonSerializerOptions _options = new()
     {
-        //Ensure properties are always in the same order
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull

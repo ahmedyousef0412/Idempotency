@@ -1,3 +1,3 @@
 ﻿namespace Idempotency.Dtos;
 
-public record CreateOrderRequest(string ProductName);
+public record CreateOrderRequest(string ProductName,int Quantity);

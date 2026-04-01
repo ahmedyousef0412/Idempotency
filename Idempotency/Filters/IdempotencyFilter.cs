@@ -39,6 +39,7 @@ public class IdempotencyFilter(IIdempotencyService idempotencyService) : IAsyncA
         {
             case IdempotencyStatus.InProgress:
                 context.HttpContext.Response.Headers.Append("Retry-After", "5");
+
                 context.Result = new ConflictObjectResult(new
                 {
                     Message = "Request is currently being processed. Please retry in 5 seconds."
@@ -51,6 +52,7 @@ public class IdempotencyFilter(IIdempotencyService idempotencyService) : IAsyncA
 
             case IdempotencyStatus.Completed:
                 context.HttpContext.Response.Headers.Append("X-Idempotency-Cache", "HIT");
+
                 context.Result = new ContentResult
                 {
                     Content = checkResult.Record!.ResponseBody,
@@ -64,16 +66,26 @@ public class IdempotencyFilter(IIdempotencyService idempotencyService) : IAsyncA
                
                 var executedContext = await next();
 
-                
-                if (executedContext.Result is ObjectResult objectResult)
+                /*
+                 Value Objetc {Order Entity}
+                 */
+                if (executedContext.Result is ObjectResult objectResult) // What this return?
                 {
-                    
+                    //{"Id":"8cbf54e3-8f15-440d-8c30-c675ece3df09","ProductName":"IPhone","Quantity":3,"CreatedAt":"2026-04-01T11:56:04.6500647Z"}
                     var responseBody = JsonSerializer.Serialize(objectResult.Value);
-                    int statusCode = objectResult.StatusCode ?? 201;
+                    
 
-                   
+                    var statusCode = executedContext.Result switch
+                    {
+                        ObjectResult obj => obj.StatusCode ?? 200,
+                        StatusCodeResult res => res.StatusCode,
+                        _ => 200
+                    };
+
+
                     context.HttpContext.Response.Headers.Append("X-Idempotency-Key", key);
 
+                   
                     await _idempotencyService.SaveResponseAsync(key, responseBody, statusCode);
                 }
                 break;

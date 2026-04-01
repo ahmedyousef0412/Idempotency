@@ -1,4 +1,6 @@
-﻿namespace Idempotency.Domain.Entities;
+﻿using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Idempotency.Domain.Entities;
 
 public class IdempotencyRecord
 {
@@ -15,11 +17,12 @@ public class IdempotencyRecord
 
     public IdempotencyStatus GetStatus(Guid attemptedId, string attemptedRequestHash)
     {
-        if (this.Id == attemptedId) return IdempotencyStatus.New;
+        if (Id == attemptedId) return IdempotencyStatus.New;
 
-        if (this.RequestHash != attemptedRequestHash) return IdempotencyStatus.Mismatch;
 
-        if (string.IsNullOrEmpty(this.ResponseBody)) return IdempotencyStatus.InProgress;
+        if (RequestHash != attemptedRequestHash) return IdempotencyStatus.Mismatch;
+
+        if (string.IsNullOrEmpty(ResponseBody)) return IdempotencyStatus.InProgress;
 
 
         return IdempotencyStatus.Completed;

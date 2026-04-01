@@ -8,8 +8,6 @@ public class IdempotencyService(AppDbContext context) : IIdempotencyService
 
     private readonly AppDbContext _context = context;
 
-    
-
     public async Task<IdempotencyRecord?> GetAsync(string key)
     {
         return await _context
@@ -19,31 +17,12 @@ public class IdempotencyService(AppDbContext context) : IIdempotencyService
 
     public async Task SaveResponseAsync(string key, string response, int statusCode)
     {
-        var record = await GetAsync(key);
 
-        if (record is null)
-        {
-            // If the record does not exist (race condition or missing), create it
-            record = new IdempotencyRecord
-            {
-                Id = Guid.NewGuid(),
-                IdempotencyKey = key,
-                RequestHash = string.Empty,
-                CreatedAt = DateTime.UtcNow,
-                ExpireAt = DateTime.UtcNow.AddHours(24),
-                ResponseBody = response,
-                StatusCode = statusCode
-            };
-
-            _context.IdempotencyRecords.Add(record);
-        }
-        else
-        {
-            record.ResponseBody = response;
-            record.StatusCode = statusCode;
-        }
-
-        await _context.SaveChangesAsync();
+        await _context.IdempotencyRecords
+            .Where(x => x.IdempotencyKey == key)
+             .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.ResponseBody, response)
+                .SetProperty(r => r.StatusCode, statusCode));
     }
 
     public async Task<IdempotencyCheckResult> CheckAndReserveAsync(string key, string requestHash)
@@ -54,11 +33,11 @@ public class IdempotencyService(AppDbContext context) : IIdempotencyService
             IdempotencyKey = key,
             RequestHash = requestHash,
             CreatedAt = DateTime.UtcNow,
-            ExpireAt = DateTime.UtcNow.AddHours(24),
+            //ExpireAt = DateTime.UtcNow.AddHours(24),
+            ExpireAt = DateTime.UtcNow.AddSeconds(30), // for testing Background Service to clean up expired records
             ResponseBody = string.Empty,
             StatusCode = 0
         };
-
 
         // Here I enhanced the logic to use a single database call to check for existing record and insert a new one
         // if it doesn't exist,
@@ -68,14 +47,14 @@ public class IdempotencyService(AppDbContext context) : IIdempotencyService
 
         var result = results.FirstOrDefault();
 
-        if (result == null)
-            return new IdempotencyCheckResult { Status = IdempotencyStatus.InProgress };
-
-        return new IdempotencyCheckResult
-        {
-            Status = result.GetStatus(newRecord.Id, requestHash),
-            Record = result
-        };
+        return result == null
+            ? throw new InvalidOperationException("Database failed to return the idempotency record.")
+            :new IdempotencyCheckResult
+            {
+                Status = result.GetStatus(newRecord.Id, requestHash),
+              
+                Record = result
+            };
 
         #region Switch Case Pattern
         //return result switch
@@ -93,28 +72,28 @@ public class IdempotencyService(AppDbContext context) : IIdempotencyService
     private async Task<List<IdempotencyRecord>> TryReserveAsync(IdempotencyRecord newRecord)
     {
         return await _context.IdempotencyRecords
-        .FromSqlRaw(@"
-            MERGE IdempotencyRecords AS target
-            USING (VALUES (@Id, @Key, @Hash, @Body, @Type, @Status, @Created, @Expire)) 
-            AS source (Id, IdempotencyKey, RequestHash, ResponseBody, ContentType, StatusCode, CreatedAt, ExpireAt)
-            ON target.IdempotencyKey = source.IdempotencyKey
-            WHEN MATCHED THEN
-            UPDATE SET target.IdempotencyKey = target.IdempotencyKey
-            WHEN NOT MATCHED THEN
-                INSERT (Id, IdempotencyKey, RequestHash, ResponseBody, ContentType, StatusCode, CreatedAt, ExpireAt)
-                VALUES (source.Id, source.IdempotencyKey, source.RequestHash, source.ResponseBody, source.ContentType, source.StatusCode, source.CreatedAt, source.ExpireAt)
-            OUTPUT INSERTED.*, $action AS Action;",
-            new SqlParameter("@Id", newRecord.Id),
-            new SqlParameter("@Key", newRecord.IdempotencyKey),
-            new SqlParameter("@Hash", newRecord.RequestHash),
-            new SqlParameter("@Body", newRecord.ResponseBody),
-            new SqlParameter("@Type", newRecord.ContentType),
-            new SqlParameter("@Status", newRecord.StatusCode),
-            new SqlParameter("@Created", newRecord.CreatedAt),
-            new SqlParameter("@Expire", newRecord.ExpireAt))
-        .IgnoreQueryFilters()
-        .AsNoTracking()
-        .ToListAsync();
+                            .FromSqlRaw(@"
+                            MERGE IdempotencyRecords AS target
+                            USING (VALUES (@Id, @Key, @Hash, @Body, @Type, @Status, @Created, @Expire)) 
+                            AS source (Id, IdempotencyKey, RequestHash, ResponseBody, ContentType, StatusCode, CreatedAt, ExpireAt)
+                            ON target.IdempotencyKey = source.IdempotencyKey
+                            WHEN MATCHED THEN
+                            UPDATE SET target.IdempotencyKey = target.IdempotencyKey
+                            WHEN NOT MATCHED THEN
+                                INSERT (Id, IdempotencyKey, RequestHash, ResponseBody, ContentType, StatusCode, CreatedAt, ExpireAt)
+                                VALUES (source.Id, source.IdempotencyKey, source.RequestHash, source.ResponseBody, source.ContentType, source.StatusCode, source.CreatedAt, source.ExpireAt)
+                            OUTPUT INSERTED.*, $action AS Action;",
+                            new SqlParameter("@Id", newRecord.Id),
+                            new SqlParameter("@Key", newRecord.IdempotencyKey),
+                            new SqlParameter("@Hash", newRecord.RequestHash),
+                            new SqlParameter("@Body", newRecord.ResponseBody),
+                            new SqlParameter("@Type", newRecord.ContentType),
+                            new SqlParameter("@Status", newRecord.StatusCode),
+                            new SqlParameter("@Created", newRecord.CreatedAt),
+                            new SqlParameter("@Expire", newRecord.ExpireAt))
+                            .IgnoreQueryFilters()
+                            .AsNoTracking()
+                            .ToListAsync();
     }
 
 

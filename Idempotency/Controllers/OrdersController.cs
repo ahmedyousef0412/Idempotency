@@ -29,6 +29,7 @@ public class OrdersController(AppDbContext context) : ControllerBase
         {
             Id = Guid.NewGuid(),
             ProductName = request.ProductName,
+            Quantity = request.Quantity,
             CreatedAt = DateTime.UtcNow
         };
 
