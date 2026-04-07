@@ -62,7 +62,7 @@ builder.Services.AddValidatorsFromAssemblyContaining<CreateOrderRequestValidator
 
 #region Background Services
 
-//builder.Services.AddHostedService<IdempotencyCleanupService>();
+builder.Services.AddHostedService<IdempotencyCleanupService>();
 
 #endregion
 

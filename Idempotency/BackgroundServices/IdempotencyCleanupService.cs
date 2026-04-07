@@ -1,30 +1,41 @@
-﻿namespace Idempotency.BackgroundServices;
+﻿using Idempotency.Logging;
 
-public class IdempotencyCleanupService
+namespace Idempotency.BackgroundServices;
+
+public partial class IdempotencyCleanupService
     (
        IServiceScopeFactory scopeFactory
-      ,ILogger<IdempotencyCleanupService> logger
-    ) 
+      , ILogger<IdempotencyCleanupService> logger
+    )
     : BackgroundService
 {
 
     private readonly TimeSpan _period = TimeSpan.FromSeconds(10);
+    private readonly ILogger<IdempotencyCleanupService> _logger = logger;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (logger.IsEnabled(LogLevel.Information))
-            logger.LogInformation("Idempotency Cleanup Service is starting.");
+
+        IdempotencyCleanupLogs.LogServiceStarting(_logger);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(_period, stoppingToken);
                 await CleanupExpiredRecordsAsync(stoppingToken);
+
+                await Task.Delay(_period, stoppingToken);
             }
+
+            catch(OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error occurred during idempotency cleanup.");
+                IdempotencyCleanupLogs.LogCleanupError(_logger, DateTime.UtcNow, ex);
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
         }
     }
@@ -34,17 +45,18 @@ public class IdempotencyCleanupService
         using var scope = scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var now = DateTime.UtcNow;
-
+        
         var deletedCount = await dbContext.IdempotencyRecords
-                                          .Where(r => r.ExpireAt <= now)
+                                          .Where(r => r.ExpireAt <= DateTime.UtcNow)
                                           .ExecuteDeleteAsync(cancellationToken);
 
 
-                                         
-        if (deletedCount > 0 && logger.IsEnabled(LogLevel.Information))
+        if (deletedCount > 0)
         {
-            logger.LogInformation("Deleted {Count} expired idempotency records.", deletedCount);
+            IdempotencyCleanupLogs.LogDeletedRecords(logger, deletedCount);
         }
+
     }
+
+   
 }
